@@ -8,14 +8,12 @@ import tensorflow as tf
 
 class AdamaxOptimizer(optimizer.Optimizer):
     """Optimizer that implements the Adamax algorithm.
-
     See [Kingma et. al., 2014](http://arxiv.org/abs/1412.6980)
     ([pdf](http://arxiv.org/pdf/1412.6980.pdf)).
-
     @@__init__
     """
 
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, use_locking=False, name="Adamax"):
+    def __init__(self, learning_rate=0.002, beta1=0.9, beta2=0.999, use_locking=False, name="Adamax"):
         super(AdamaxOptimizer, self).__init__(use_locking, name)
         self._lr = learning_rate
         self._beta1 = beta1
@@ -36,6 +34,7 @@ class AdamaxOptimizer(optimizer.Optimizer):
         for v in var_list:
             self._zeros_slot(v, "m", self._name)
             self._zeros_slot(v, "v", self._name)
+            self._zeros_slot(v, "t", self._name)
 
     def _apply_dense(self, grad, var):
         lr_t = math_ops.cast(self._lr_t, var.dtype.base_dtype)
@@ -45,15 +44,17 @@ class AdamaxOptimizer(optimizer.Optimizer):
             eps = 1e-7  # Can't use 1e-8 due to underflow -- not sure if it makes a big difference.
         else:
             eps = 1e-8
-
         v = self.get_slot(var, "v")
         v_t = v.assign(beta1_t * v + (1. - beta1_t) * grad)
         m = self.get_slot(var, "m")
-        m_t = m.assign(tf.maximum(beta2_t * m + eps, tf.abs(grad)))
-        g_t = v_t / m_t
+        m_t = m.assign(tf.maximum(beta2_t * m,tf.abs(grad)+eps))
+        t=self.get_slot(var,"t")
+        t_t=t.assign(t+1)
+        g_t = lr_t/(1-beta1_t**t_t)*v_t/m_t
 
-        var_update = state_ops.assign_sub(var, lr_t * g_t)
-        return control_flow_ops.group(*[var_update, m_t, v_t])
+        var_update = state_ops.assign_sub(var,g_t)
+        return control_flow_ops.group(*[var_update, t_t ,m_t, v_t])
 
     def _apply_sparse(self, grad, var):
         raise NotImplementedError("Sparse gradient updates are not supported.")
+
